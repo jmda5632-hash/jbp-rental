@@ -143,8 +143,22 @@ function nearbyDistance(lat1,lon1,lat2,lon2){
  const a=Math.sin((lat2-lat1)*r/2)**2+Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin((lon2-lon1)*r/2)**2;
  return Math.round(6371000*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)));
 }
+// 住所表記の違いだけを吸収する。丁目・番・号の数字は削除しない。
 function nearbyAddressNormalize(v){
- return String(v||'').normalize('NFKC').replace(/[\s　]/g,'').replace(/[‐‑‒–—―－]/g,'-').replace(/([0-9]+)丁目(?=[0-9])/g,'$1-');
+ const kanji={'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10};
+ return String(v||'').normalize('NFKC')
+  .replace(/[\s　]/g,'')
+  .replace(/[‐‑‒–—―－ー−]/g,'-')
+  .replace(/([一二三四五六七八九十]+)(?=丁目)/g,x=>{
+    if(kanji[x])return String(kanji[x]);
+    const m=x.match(/^十([一二三四五六七八九])$/);
+    return m?String(10+kanji[m[1]]):x;
+  })
+  .replace(/([0-9]+)丁目/g,'$1-')
+  .replace(/([0-9]+)番地?(?:の)?/g,'$1-')
+  .replace(/([0-9]+)号/g,'$1')
+  .replace(/-+/g,'-')
+  .replace(/-$/,'');
 }
 async function nearbyFetch(url){
  const response=await fetch(url,{headers:{'Accept':'application/json','User-Agent':'JBPRentalNearby/1.0'},signal:AbortSignal.timeout(25000)});
@@ -160,15 +174,23 @@ app.post('/admin/nearby-facilities',auth,async(req,res)=>{
   const geocode=await nearbyFetch('https://api.qchizu.jp/geocode.php?'+new URLSearchParams({address:full}));
   const norm=nearbyAddressNormalize;
   const expected=norm(full),expectedCity=norm(city),expectedPref=norm(pref);
-  const result=(Array.isArray(geocode.results)?geocode.results:[]).find(item=>{
+  const candidates=Array.isArray(geocode.results)?geocode.results:[];
+  const validCity=v=>norm(v.pref)===expectedPref && norm(String(v.city||'')+String(v.ward||''))===expectedCity;
+  const sameAddress=v=>norm(v.output)===expected;
+  const exact=candidates.filter(item=>validCity(item.result||{})&&sameAddress(item.result||{}));
+  const result=exact.find(item=>{
    const v=item.result||{};
-   return norm(v.pref)===expectedPref &&
-    norm(String(v.city||'')+String(v.ward||''))===expectedCity &&
-    norm(v.output)===expected &&
-    v.coordinate_level==='residential_detail' &&
-    Number.isFinite(Number(v.lat))&&Number.isFinite(Number(v.lon));
+   return v.coordinate_level==='residential_detail' &&
+    Number.isFinite(Number(v.lat)) && Number.isFinite(Number(v.lon));
   });
-  if(!result)return res.status(422).json({error:'全国Q地図で番地まで一致する住所が確認できません。住所を確認してください。'});
+  if(!result){
+   const error=exact.length
+    ? '住所の表記は一致しましたが、全国Q地図で番地の正確な座標を確認できませんでした。施設検索は実行していません。'
+    : candidates.some(item=>validCity(item.result||{}))
+      ? '市区町村は一致しましたが、番地まで同じ住所を確認できませんでした。町名の代表地点では検索しません。'
+      : '全国Q地図で該当する都道府県・市区町村の住所を確認できませんでした。';
+   return res.status(422).json({error});
+  }
   const lat=Number(result.result.lat),lon=Number(result.result.lon);
   const mapUrl=String(result.links?.qchizu_map||'');
   const attribution=String(geocode.attribution||'');
