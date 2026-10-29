@@ -63,6 +63,25 @@ function parseRentalCsv(input){
   if(new Set(headers).size!==headers.length)throw Error('見出しが重複しています');
   return rows.map((cells,i)=>{if(cells.length!==headers.length)throw Error(`${i+2}行目: 列数が一致しません`);return Object.fromEntries(headers.map((h,j)=>[h,cells[j].trim()]))});
 }
+// REINS検索結果の列名を自動判定し、賃貸サイトの登録形式へ変換
+function isReinsRentalRow(row){return Object.prototype.hasOwnProperty.call(row,'物件種目') && Object.prototype.hasOwnProperty.call(row,'賃料') && Object.prototype.hasOwnProperty.call(row,'所在地')}
+function reinsRentalRow(row){
+ const raw=String(row['所在地']||'').normalize('NFKC').replace(/\s/g,'');
+ const m=raw.match(/^(東京都|千葉県|埼玉県|神奈川県)(.+?[市区町村])(.+)$/);
+ if(!m)throw Error('所在地から都道府県・市区町村・町名を抽出できません');
+ const t=String(row['物件種目']||'').normalize('NFKC');
+ const type=/貸家|戸建|一戸建/.test(t)?'賃貸戸建':/マンション/.test(t)?'賃貸マンション':/アパート/.test(t)?'賃貸アパート':/店舗/.test(t)?'貸店舗':/事務所/.test(t)?'貸事務所':/倉庫/.test(t)?'貸倉庫':/貸地|土地/.test(t)?'貸地':/テラス/.test(t)?'テラスハウス':null;
+ if(!type)throw Error('未対応の物件種目: '+t);
+ const yen=v=>{const x=String(v||'').normalize('NFKC').replace(/,/g,'').trim();if(!x||x==='-'||x==='なし')return 0;const m=x.match(/^([0-9]+(?:\.[0-9]+)?)(万円|万|円)?$/);if(!m)throw Error('金額を解釈できません: '+x);return Math.round(Number(m[1])*(m[2]==='万円'||m[2]==='万'?10000:1))};
+ const fee=yen(row['管理費'])+yen(row['共益費']);
+ const price=yen(row['賃料']);if(price<=0)throw Error('賃料が不正です');
+ const size=String(row['建物面積']||row['土地面積']||'').normalize('NFKC').match(/[0-9]+(?:\.[0-9]+)?/);
+ const key=crypto.createHash('sha256').update(JSON.stringify([raw,t,String(row['建物面積']||''),String(row['間取']||''),String(row['築年月']||''),String(row['商号']||'')])).digest('hex').slice(0,20);
+ const slash=v=>String(v||'').split(/[／/]/).map(x=>x.trim());
+ const deposit=slash(row['敷金／保証金']),keymoney=slash(row['礼金／権利金']);
+ const category=/貸店舗|貸事務所|貸倉庫|貸地/.test(type)?'事業用':'居住用';
+ return {propertyNo:'REINS-'+key,title:m[2]+m[3]+' '+t,category,type,price:String(price),managementFee:String(fee),prefecture:m[1],city:m[2],address:m[3],layout:String(row['間取']||'').normalize('NFKC'),area:size?size[0]:'',built:String(row['築年月']||''),floor:String(row['所在階']||''),station:String(row['交通']||''),transaction:String(row['取引態様']||''),deposit:deposit[0]||'',guarantee:deposit[1]||'',keyMoney:keymoney[0]||'',listingSource:'REINS / '+String(row['商号']||''),description:'REINS取込物件。募集条件・広告掲載許可・物件情報は公開前に確認してください。',adPermission:'0'};
+}
 const rentalCsvColumns=[['propertyNo','物件番号'],['title','物件名'],['category','用途'],['type','物件種別'],['price','家賃'],['managementFee','管理費'],['deposit','敷金'],['keyMoney','礼金'],['guarantee','保証金'],['renewalFee','更新料'],['contractTerm','契約期間'],['availableDate','入居可能日'],['listingSource','募集区分'],['prefecture','都道府県'],['city','市区町村'],['address','町名番地'],['station','最寄駅'],['walkMinutes','徒歩分数'],['layout','間取り'],['area','面積'],['built','築年月'],['structure','構造'],['floor','所在階'],['parking','駐車場'],['transaction','取引態様'],['description','物件説明'],['highlights','おすすめポイント'],['pets','ペット可'],['garden','庭付き'],['featured','おすすめ'],['adPermission','広告掲載許諾確認済み']];
 const csvBoolean=v=>['1','true','yes','はい','有','あり','○','〇'].includes(String(v||'').trim().toLowerCase());
 app.get('/admin/csv-template',auth,(req,res)=>{
@@ -81,7 +100,7 @@ app.post('/admin/import-csv',auth,(req,res,next)=>rentalCsvUpload.array('csv',50
    let decoded=new TextDecoder('utf-8',{fatal:true}).decode(file.buffer);
    const rows=parseRentalCsv(decoded);
    for(let n=0;n<rows.length;n++){
-    const row=rows[n],b={};for(const [h,v] of Object.entries(row))if(aliases[h])b[aliases[h]]=v;
+    let b;const row=rows[n];try{b=isReinsRentalRow(row)?reinsRentalRow(row):{};if(!isReinsRentalRow(row))for(const [h,v] of Object.entries(row))if(aliases[h])b[aliases[h]]=v;}catch(e){errors.push(`${file.originalname} ${n+2}行目: ${e.message}`);failed++;continue;}
     const id=String(b.propertyNo||'').trim();
     if(!id){errors.push(`${file.originalname} ${n+2}行目: 物件番号が必要です`);failed++;continue}
     if(!b.title||!b.city||!b.address||!types.includes(b.type)||!['居住用','事業用'].includes(b.category)||!/^\d+(?:\.\d+)?$/.test(b.price||'')){
