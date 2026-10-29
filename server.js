@@ -177,6 +177,16 @@ app.post('/admin/nearby-facilities',auth,async(req,res)=>{
   const candidates=Array.isArray(geocode.results)?geocode.results:[];
   const validCity=v=>norm(v.pref)===expectedPref && norm(String(v.city||'')+String(v.ward||''))===expectedCity;
   const sameAddress=v=>norm(v.output)===expected;
+  // Diagnostic only: do not log full addresses, coordinates or API keys.
+  console.info('[QCHIZU_DIAG]',JSON.stringify({event:'geocode_response',candidateCount:candidates.length,
+   candidates:candidates.slice(0,10).map((item,index)=>{const v=item.result||{};return {
+    index,coordinate_level:v.coordinate_level??null,
+    prefectureMatch:norm(v.pref)===expectedPref,
+    cityMatch:norm(String(v.city||'')+String(v.ward||''))===expectedCity,
+    addressMatch:sameAddress(v),
+    latitudeValid:v.lat!==null&&v.lat!==undefined&&v.lat!==''&&Number.isFinite(Number(v.lat)),
+    longitudeValid:v.lon!==null&&v.lon!==undefined&&v.lon!==''&&Number.isFinite(Number(v.lon))
+   };})}));
   const exact=candidates.filter(item=>validCity(item.result||{})&&sameAddress(item.result||{}));
   const result=exact.find(item=>{
    const v=item.result||{};
@@ -184,6 +194,9 @@ app.post('/admin/nearby-facilities',auth,async(req,res)=>{
     Number.isFinite(Number(v.lat)) && Number.isFinite(Number(v.lon));
   });
   if(!result){
+   console.warn('[QCHIZU_DIAG]',JSON.stringify({event:'no_precise_match',exactAddressCandidates:exact.length,
+    coordinateLevels:exact.map(item=>item.result?.coordinate_level??null),
+    reason:exact.length?'coordinate_level_or_coordinates':candidates.some(item=>validCity(item.result||{}))?'address_mismatch':'city_or_prefecture_mismatch'}));
    const error=exact.length
     ? '住所の表記は一致しましたが、全国Q地図で番地の正確な座標を確認できませんでした。施設検索は実行していません。'
     : candidates.some(item=>validCity(item.result||{}))
@@ -191,6 +204,7 @@ app.post('/admin/nearby-facilities',auth,async(req,res)=>{
       : '全国Q地図で該当する都道府県・市区町村の住所を確認できませんでした。';
    return res.status(422).json({error});
   }
+  console.info('[QCHIZU_DIAG]',JSON.stringify({event:'precise_match',coordinate_level:result.result.coordinate_level}));
   const lat=Number(result.result.lat),lon=Number(result.result.lon);
   const mapUrl=String(result.links?.qchizu_map||'');
   const attribution=String(geocode.attribution||'');
