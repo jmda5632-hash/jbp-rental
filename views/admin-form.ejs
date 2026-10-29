@@ -3,6 +3,15 @@
 <h2 style="margin-top:0">周辺施設を自動検索（半径1km）</h2>
 <p>登録した住所からスーパー・学校・病院・公園を検索します。距離は直線距離です。</p>
 <% if(p?.id){ %>
+<button type="button" id="map-open" class="btn" style="margin-right:10px">地図で物件位置を指定</button>
+<div id="map-picker" hidden style="margin:16px 0">
+<p>地図を移動・拡大し、建物の位置をクリックしてピンを置いてください。住所だけで自動確定はしません。</p>
+<p><a id="map-reference" href="#" target="_blank" rel="noopener noreferrer">住所をGoogleマップで確認（別画面）</a></p>
+<div id="manual-map" style="height:390px;max-width:100%;border:1px solid #cadbd2;border-radius:12px"></div>
+<p id="map-coordinate">まだ位置を指定していません。</p>
+<button type="button" id="map-confirm" disabled>この位置を確認して保存</button>
+<p id="map-status" role="status" aria-live="polite"></p>
+</div>
 <button type="button" id="nearby-search" class="btn">周辺施設を検索して保存</button>
 <p id="nearby-status" role="status" aria-live="polite">検索前に都道府県・市区町村・町名番地をご確認ください。</p>
 <div id="nearby-results"></div>
@@ -24,12 +33,52 @@
  const form=button.closest('form');
  const id=<%- JSON.stringify(p?.id || '') %>;
  const field=name=>String(form.elements.namedItem(name)?.value||'').trim();
+  const mapOpen=document.getElementById('map-open');
+  const picker=document.getElementById('map-picker');
+  const mapConfirm=document.getElementById('map-confirm');
+  const mapStatus=document.getElementById('map-status');
+  const coordText=document.getElementById('map-coordinate');
+  const reference=document.getElementById('map-reference');
+  let map=null,marker=null,chosen=null;
+  const initial=<%- JSON.stringify(p?.manualLocation || null) %>;
+  if(initial && Number.isFinite(Number(initial.lat)) && Number.isFinite(Number(initial.lon)))useManualLocation=true;
+  function loadLeaflet(){return new Promise((resolve,reject)=>{
+    if(window.L)return resolve();
+    const css=document.createElement('link');css.rel='stylesheet';css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';document.head.appendChild(css);
+    const script=document.createElement('script');script.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';script.onload=resolve;script.onerror=()=>reject(Error('地図ライブラリを読み込めません'));document.head.appendChild(script);
+  });}
+  mapOpen.addEventListener('click',async()=>{
+    picker.hidden=false;
+    reference.href='https://www.google.com/maps/search/?api=1&query='+encodeURIComponent([field('prefecture'),field('city'),field('address')].join(''));
+    try{
+      await loadLeaflet();
+      if(!map){
+        const center=initial&&Number.isFinite(Number(initial.lat))?[Number(initial.lat),Number(initial.lon)]:[35.7219,139.9311];
+        map=L.map('manual-map').setView(center,initial?17:12);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors',maxZoom:19}).addTo(map);
+        function setPin(latlng){chosen={lat:latlng.lat,lon:latlng.lng};if(marker)marker.setLatLng(latlng);else marker=L.marker(latlng).addTo(map);coordText.textContent='選択位置：'+chosen.lat.toFixed(6)+' / '+chosen.lon.toFixed(6);mapConfirm.disabled=false;useManualLocation=false;}
+        map.on('click',e=>setPin(e.latlng));
+        if(initial)setPin(L.latLng(Number(initial.lat),Number(initial.lon)));
+      }
+      setTimeout(()=>map.invalidateSize(),50);
+    }catch(e){mapStatus.textContent='エラー：'+e.message;}
+  });
+  mapConfirm.addEventListener('click',async()=>{
+    if(!chosen)return;
+    if(!confirm('ピンの位置が実際の物件所在地であることを確認しましたか？'))return;
+    mapConfirm.disabled=true;mapStatus.textContent='位置を保存しています…';
+    try{
+      const r=await fetch('/admin/properties/'+encodeURIComponent(id)+'/manual-location',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...chosen,prefecture:field('prefecture'),city:field('city'),address:field('address'),confirmed:true})});
+      const data=await r.json();if(!r.ok)throw Error(data.error||'位置の保存に失敗しました');
+      useManualLocation=true;mapStatus.textContent='物件位置を保存しました。下の「周辺施設を検索して保存」を押してください。';
+    }catch(e){mapStatus.textContent='エラー：'+e.message;}finally{mapConfirm.disabled=false;}
+  });
  button.addEventListener('click',async()=>{
   const prefecture=field('prefecture'),city=field('city'),address=field('address');
   if(!prefecture||!city||!address){status.textContent='住所をすべて入力してください。';return;}
   button.disabled=true;results.replaceChildren();status.textContent='検索しています…';
   try{
-   const r=await fetch('/admin/nearby-facilities',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefecture,city,address})});
+   const r=await fetch('/admin/nearby-facilities',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefecture,city,address,propertyId:id,useManualLocation})});
    const data=await r.json();
    if(!r.ok)throw Error(data.error||'施設の検索に失敗しました');
    if(!Array.isArray(data.facilities)||!data.facilities.length){status.textContent='該当施設は見つかりませんでした。登録済み施設は変更していません。';return;}
