@@ -43,6 +43,67 @@ app.post('/admin/properties/:id/image-delete',auth,(q,s)=>{const a=read(PF),p=a.
 app.post('/admin/properties/:id/photos-quick',auth,upload.array('photos',30),(q,s)=>{const a=read(PF),p=a.find(p=>p.id===q.params.id);if(!p){(q.files||[]).forEach(f=>remove(f.filename));return s.status(404).json({error:'物件なし'})}if((p.photos||[]).length+(q.files||[]).length>30){(q.files||[]).forEach(f=>remove(f.filename));return s.status(400).json({error:'30枚まで'})}p.photos=[...(p.photos||[]),...(q.files||[]).map(f=>f.filename)];write(PF,a);s.json({success:true,count:p.photos.length,firstPhoto:'/uploads/'+p.photos[0]})});
 app.post('/admin/bulk-status',auth,(q,s)=>{let ids;try{ids=JSON.parse(q.body.selectedIds)}catch{return s.sendStatus(400)}if(!Array.isArray(ids)||!statuses.includes(q.body.status))return s.sendStatus(400);const a=read(PF);for(const p of a)if(ids.includes(p.id))p.status=q.body.status;write(PF,a);s.redirect('/admin')});
 app.post('/admin/bulk-delete',auth,(q,s)=>{let ids;try{ids=JSON.parse(q.body.selectedIds)}catch{return s.sendStatus(400)}if(!Array.isArray(ids))return s.sendStatus(400);const a=read(PF);for(const p of a.filter(p=>ids.includes(p.id)))for(const k of ['photos','floorplans','panoramas'])(p[k]||[]).forEach(remove);write(PF,a.filter(p=>!ids.includes(p.id)));s.redirect('/admin')});
+
+// 賃貸CSV一括登録（管理者限定・複数ファイル対応）
+const rentalCsvUpload = multer({storage:multer.memoryStorage(),limits:{fileSize:5*1024*1024,files:20},fileFilter:(req,file,cb)=>cb(null,/\.csv$/i.test(file.originalname||''))});
+function parseRentalCsv(input){
+  const text=input.replace(/^\uFEFF/,'');const rows=[];let row=[],cell='',quoted=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(quoted){if(c==='"'&&text[i+1]==='"'){cell+='"';i++}else if(c==='"')quoted=false;else cell+=c}
+    else if(c==='"'){if(cell!=='')throw Error('引用符の位置が不正です');quoted=true}
+    else if(c===','){row.push(cell);cell=''}
+    else if(c==='\n'||c==='\r'){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);cell='';if(row.some(v=>v.trim()))rows.push(row);row=[]}
+    else cell+=c;
+  }
+  if(quoted)throw Error('CSVの引用符が閉じられていません');
+  row.push(cell);if(row.some(v=>v.trim()))rows.push(row);
+  if(rows.length<2)throw Error('見出し行とデータ行が必要です');
+  const headers=rows.shift().map(x=>x.trim());
+  if(new Set(headers).size!==headers.length)throw Error('見出しが重複しています');
+  return rows.map((cells,i)=>{if(cells.length!==headers.length)throw Error(`${i+2}行目: 列数が一致しません`);return Object.fromEntries(headers.map((h,j)=>[h,cells[j].trim()]))});
+}
+const rentalCsvColumns=[['propertyNo','物件番号'],['title','物件名'],['category','用途'],['type','物件種別'],['price','家賃'],['managementFee','管理費'],['deposit','敷金'],['keyMoney','礼金'],['guarantee','保証金'],['renewalFee','更新料'],['contractTerm','契約期間'],['availableDate','入居可能日'],['listingSource','募集区分'],['prefecture','都道府県'],['city','市区町村'],['address','町名番地'],['station','最寄駅'],['walkMinutes','徒歩分数'],['layout','間取り'],['area','面積'],['built','築年月'],['structure','構造'],['floor','所在階'],['parking','駐車場'],['transaction','取引態様'],['description','物件説明'],['highlights','おすすめポイント'],['pets','ペット可'],['garden','庭付き'],['featured','おすすめ'],['adPermission','広告掲載許諾確認済み']];
+const csvBoolean=v=>['1','true','yes','はい','有','あり','○','〇'].includes(String(v||'').trim().toLowerCase());
+app.get('/admin/csv-template',auth,(req,res)=>{
+ const header=rentalCsvColumns.map(x=>x[1]);
+ const example=['JBP-R-0001','市川市八幡 賃貸マンション','居住用','賃貸マンション','85000','5000','1ヶ月','1ヶ月','','','2年','相談','一般募集','千葉県','市川市','八幡2丁目','本八幡駅','8','2LDK','55.5','2020年','RC','3階','なし','仲介','サンプル物件（公開不可）','','0','0','0','0'];
+ const escape=v=>'"'+String(v).replace(/"/g,'""')+'"';
+ res.set('Content-Type','text/csv; charset=utf-8');res.set('Content-Disposition','attachment; filename="jbp-rental-template.csv"');res.send('\uFEFF'+header.map(escape).join(',')+'\r\n'+example.map(escape).join(',')+'\r\n');
+});
+app.get('/admin/import-csv',auth,(req,res)=>res.render('admin-csv',{result:null,error:null}));
+app.post('/admin/import-csv',auth,(req,res,next)=>rentalCsvUpload.array('csv',20)(req,res,e=>e?res.status(400).render('admin-csv',{result:null,error:e.message}):next()),(req,res)=>{
+ if(!req.files?.length)return res.status(400).render('admin-csv',{result:null,error:'CSVファイルを選択してください'});
+ const all=read(PF),results=[],errors=[];let changed=false;
+ const aliases=Object.fromEntries(rentalCsvColumns.flatMap(([key,jp])=>[[jp,key],[key,key]]));
+ for(const file of req.files){let created=0,updated=0,failed=0;
+  try{
+   let decoded=new TextDecoder('utf-8',{fatal:true}).decode(file.buffer);
+   const rows=parseRentalCsv(decoded);
+   for(let n=0;n<rows.length;n++){
+    const row=rows[n],b={};for(const [h,v] of Object.entries(row))if(aliases[h])b[aliases[h]]=v;
+    const id=String(b.propertyNo||'').trim();
+    if(!id){errors.push(`${file.originalname} ${n+2}行目: 物件番号が必要です`);failed++;continue}
+    if(!b.title||!b.city||!b.address||!types.includes(b.type)||!['居住用','事業用'].includes(b.category)||!/^\d+(?:\.\d+)?$/.test(b.price||'')){
+      errors.push(`${file.originalname} ${n+2}行目: 必須項目または家賃・用途・種別が不正です`);failed++;continue;
+    }
+    if(b.adPermission!==undefined&&b.adPermission&&!csvBoolean(b.adPermission))b.adPermission='';
+    const idx=all.findIndex(p=>String(p.propertyNo||'')===id);
+    const old=idx>=0?all[idx]:{};
+    const merged={...old,...b,propertyNo:id,status:idx>=0?old.status:'非公開'};
+    for(const k of ['pets','garden','featured','adPermission'])merged[k]=b[k]!==undefined?csvBoolean(b[k]):!!old[k];
+    const p=normalize(merged,old);p.status=idx>=0?old.status:'非公開';p.id=old.id||crypto.randomUUID();p.createdAt=old.createdAt||new Date().toISOString();
+    for(const k of ['photos','floorplans','panoramas'])p[k]=old[k]||[];
+    if(!valid(p)){errors.push(`${file.originalname} ${n+2}行目: 物件情報が不正です`);failed++;continue}
+    if(idx>=0){all[idx]=p;updated++}else{all.unshift(p);created++}changed=true;
+   }
+  }catch(e){errors.push(`${file.originalname}: ${e.message}`);failed++}
+  results.push({filename:file.originalname,created,updated,failed});
+ }
+ if(changed)write(PF,all);
+ res.render('admin-csv',{result:{files:results,errors},error:null});
+});
+
 app.get('/admin/inquiries',auth,(q,s)=>s.render('inquiries',{inquiries:read(IF)}));
 app.use((err,q,s,next)=>{console.error(err);s.status(400).send('処理に失敗しました: '+err.message)});
 app.listen(PORT,()=>console.log('JBP RENTAL listening '+PORT));
