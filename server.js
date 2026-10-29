@@ -45,7 +45,7 @@ app.post('/admin/bulk-status',auth,(q,s)=>{let ids;try{ids=JSON.parse(q.body.sel
 app.post('/admin/bulk-delete',auth,(q,s)=>{let ids;try{ids=JSON.parse(q.body.selectedIds)}catch{return s.sendStatus(400)}if(!Array.isArray(ids))return s.sendStatus(400);const a=read(PF);for(const p of a.filter(p=>ids.includes(p.id)))for(const k of ['photos','floorplans','panoramas'])(p[k]||[]).forEach(remove);write(PF,a.filter(p=>!ids.includes(p.id)));s.redirect('/admin')});
 
 // 賃貸CSV一括登録（管理者限定・複数ファイル対応）
-const rentalCsvUpload = multer({storage:multer.memoryStorage(),limits:{fileSize:5*1024*1024,files:20},fileFilter:(req,file,cb)=>cb(null,/\.csv$/i.test(file.originalname||''))});
+const rentalCsvUpload = multer({storage:multer.memoryStorage(),limits:{fileSize:5*1024*1024,files:50},fileFilter:(req,file,cb)=>cb(null,/\.csv$/i.test(file.originalname||''))});
 function parseRentalCsv(input){
   const text=input.replace(/^\uFEFF/,'');const rows=[];let row=[],cell='',quoted=false;
   for(let i=0;i<text.length;i++){
@@ -72,7 +72,7 @@ app.get('/admin/csv-template',auth,(req,res)=>{
  res.set('Content-Type','text/csv; charset=utf-8');res.set('Content-Disposition','attachment; filename="jbp-rental-template.csv"');res.send('\uFEFF'+header.map(escape).join(',')+'\r\n'+example.map(escape).join(',')+'\r\n');
 });
 app.get('/admin/import-csv',auth,(req,res)=>res.render('admin-csv',{result:null,error:null}));
-app.post('/admin/import-csv',auth,(req,res,next)=>rentalCsvUpload.array('csv',20)(req,res,e=>e?res.status(400).render('admin-csv',{result:null,error:e.message}):next()),(req,res)=>{
+app.post('/admin/import-csv',auth,(req,res,next)=>rentalCsvUpload.array('csv',50)(req,res,e=>e?res.status(400).render('admin-csv',{result:null,error:e.message}):next()),(req,res)=>{
  if(!req.files?.length)return res.status(400).render('admin-csv',{result:null,error:'CSVファイルを選択してください'});
  const all=read(PF),results=[],errors=[];let changed=false;
  const aliases=Object.fromEntries(rentalCsvColumns.flatMap(([key,jp])=>[[jp,key],[key,key]]));
