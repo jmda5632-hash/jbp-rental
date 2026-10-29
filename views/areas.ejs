@@ -1,1 +1,51 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>町名別賃貸物件｜JBP RENTAL</title><meta name="description" content="町名から賃貸マンション・アパート・店舗を探す"><link rel="canonical" href="<%= origin() + canonical %>"><link rel="stylesheet" href="/style.css"></head><body><header><div class="wrap"><strong>JBP RENTAL｜ジャパンベストパートナーズ株式会社</strong><nav><a href="/">ホーム</a><a href="/properties">賃貸物件検索</a><a href="/areas">町名から探す</a><a href="/owners">オーナー様へ</a></nav></div></header><main class="wrap"><h1>町名から探す</h1><div class="grid"><% areas.forEach(a=>{ %><a class="card" href="<%= url(a.city,a.town) %>"><h2><%= a.city %><%= a.town %></h2><%= a.properties.length %>件</a><% }) %></div></main><footer><div class="wrap">ジャパンベストパートナーズ株式会社｜JBP RENTAL</div></footer></body></html>
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>町名から賃貸物件を探す｜市川・船橋・浦安・鎌ヶ谷｜JBP RENTAL</title>
+<meta name="description" content="市川市・船橋市・浦安市・鎌ヶ谷市の賃貸マンション・アパート・戸建・店舗・事務所を町名から検索。公開中の賃貸物件を町名別にご案内します。">
+<link rel="canonical" href="https://jbp-rental.onrender.com/areas">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/jbp-redesign.css">
+<style>
+.jbp-areas-hero{background:linear-gradient(120deg,#f3f8f4,#e0eee5);padding:48px 0 42px}
+.jbp-areas-hero .eyebrow{color:#07533e;font-size:12px;font-weight:900;letter-spacing:.16em}
+.jbp-areas-hero h1{font-size:clamp(26px,4vw,42px);margin:9px 0 12px;color:#143b2e}
+.jbp-areas-hero p{color:#52675b;line-height:1.8;margin:0}
+.jbp-areas-content{padding-top:35px;padding-bottom:65px}
+.jbp-area-group{margin-bottom:38px}
+.jbp-area-group h2{font-size:22px;border-left:5px solid #07533e;padding-left:13px;margin:0 0 17px}
+.jbp-area-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px}
+.jbp-area-card{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#fff;border:1px solid #dce7df;border-radius:12px;padding:20px 17px;box-shadow:0 5px 20px #173b2810;transition:transform .2s,border-color .2s}
+.jbp-area-card:hover{transform:translateY(-3px);border-color:#07533e}
+.jbp-area-card strong{display:block;font-size:16px;overflow-wrap:anywhere}
+.jbp-area-card small{display:block;color:#607a6a;font-size:12px;margin-top:7px}
+.jbp-area-arrow{color:#07533e;font-size:20px;font-weight:900}
+.jbp-area-empty{background:#f7faf8;border:1px solid #dce7df;border-radius:12px;padding:30px;line-height:1.8}
+.jbp-areas-footer{background:#123d31;color:#fff;padding:25px 0;font-size:13px}
+.jbp-areas-footer a{color:#fff}
+@media(max-width:900px){.jbp-area-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:600px){.jbp-areas-hero{padding:32px 0}.jbp-areas-content{padding-top:25px}.jbp-area-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.jbp-area-card{padding:15px 11px;border-radius:9px}.jbp-area-card strong{font-size:13px}.jbp-area-card small{font-size:11px}.jbp-area-group h2{font-size:19px}}
+</style>
+</head>
+<body>
+<header class="jbp-header"><div class="jbp-wrap jbp-head">
+<a class="jbp-logo" href="/">⌂ JBP RENTAL<small>ジャパンベストパートナーズ株式会社</small></a>
+<nav class="jbp-nav"><a href="/">ホーム</a><a href="/properties">賃貸物件検索</a><a href="/areas" aria-current="page">町名から探す</a><a href="/owners">オーナー様へ</a></nav>
+</div></header>
+<section class="jbp-areas-hero"><div class="jbp-wrap"><span class="eyebrow">AREA SEARCH</span><h1>町名から賃貸物件を探す</h1><p>市川市・船橋市・浦安市・鎌ヶ谷市の公開中の賃貸物件を、町名からお探しいただけます。</p></div></section>
+<main class="jbp-wrap jbp-areas-content">
+<div style="font-size:13px;color:#60776b;margin-bottom:22px"><a href="/">ホーム</a> › 町名から探す</div>
+<% const groups = new Map(); (areas || []).forEach(a => { if (!groups.has(a.city)) groups.set(a.city, []); groups.get(a.city).push(a); }); %>
+<% if (!groups.size) { %><div class="jbp-area-empty">現在、町名別に掲載できる公開物件はありません。<a href="/properties" style="color:#07533e;text-decoration:underline">物件一覧を見る</a></div><% } %>
+<% for (const [city, towns] of groups) { %>
+<section class="jbp-area-group"><h2><%= city %>の賃貸物件</h2><div class="jbp-area-grid">
+<% towns.sort((a,b)=>a.town.localeCompare(b.town,'ja')).forEach(a => { %>
+<a class="jbp-area-card" href="<%= url(a.city,a.town) %>"><span><strong><%= a.town %></strong><small>賃貸物件 <%= a.properties.length %>件</small></span><span class="jbp-area-arrow" aria-hidden="true">›</span></a>
+<% }) %>
+</div></section>
+<% } %>
+</main>
+<footer class="jbp-areas-footer"><div class="jbp-wrap">ジャパンベストパートナーズ株式会社｜JBP RENTAL</div></footer>
+</body></html>
