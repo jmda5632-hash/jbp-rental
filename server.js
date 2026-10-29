@@ -426,3 +426,4 @@ app.post('/admin/properties/:id/facilities',auth,(req,res)=>{
 app.get('/admin/inquiries',auth,(q,s)=>s.render('inquiries',{inquiries:read(IF)}));
 app.use((err,q,s,next)=>{console.error(err);s.status(400).send('処理に失敗しました: '+err.message)});
 app.listen(PORT,()=>console.log('JBP RENTAL listening '+PORT));
+
