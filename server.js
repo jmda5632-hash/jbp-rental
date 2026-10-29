@@ -193,23 +193,38 @@ app.post('/admin/nearby-facilities',auth,async(req,res)=>{
    return v.coordinate_level==='residential_detail' &&
     Number.isFinite(Number(v.lat)) && Number.isFinite(Number(v.lon));
   });
-  if(!result){
-   console.warn('[QCHIZU_DIAG]',JSON.stringify({event:'no_precise_match',exactAddressCandidates:exact.length,
-    coordinateLevels:exact.map(item=>item.result?.coordinate_level??null),
-    reason:exact.length?'coordinate_level_or_coordinates':candidates.some(item=>validCity(item.result||{}))?'address_mismatch':'city_or_prefecture_mismatch'}));
-   const error=exact.length
-    ? '住所の表記は一致しましたが、全国Q地図で番地の正確な座標を確認できませんでした。施設検索は実行していません。'
-    : candidates.some(item=>validCity(item.result||{}))
-      ? '市区町村は一致しましたが、番地まで同じ住所を確認できませんでした。町名の代表地点では検索しません。'
-      : '全国Q地図で該当する都道府県・市区町村の住所を確認できませんでした。';
-   return res.status(422).json({error});
+  let lat,lon,mapUrl='',attribution='',geocodingSource='全国Q地図';
+  if(result){
+   console.info('[QCHIZU_DIAG]',JSON.stringify({event:'precise_match',coordinate_level:result.result.coordinate_level}));
+   lat=Number(result.result.lat);lon=Number(result.result.lon);
+   mapUrl=String(result.links?.qchizu_map||'');
+   attribution=String(geocode.attribution||'');
+   if(!attribution||!/^https:\/\/(?:[a-z0-9-]+\.)?qchizu\.jp\//i.test(mapUrl))
+    return res.status(502).json({error:'全国Q地図の出典情報を取得できませんでした。'});
+  }else{
+   console.warn('[QCHIZU_DIAG]',JSON.stringify({event:'qchizu_not_precise',exactAddressCandidates:exact.length,coordinateLevels:exact.map(item=>item.result?.coordinate_level??null)}));
+   // 町名・市区町村レベルの候補は使わず、建物番地まで検証できた場合だけ採用する。
+   const geo=await nearbyFetch('https://api.geoapify.com/v1/geocode/search?'+new URLSearchParams({
+    text:full,format:'geojson',lang:'ja',limit:'5',filter:'countrycode:jp',apiKey:process.env.GEOAPIFY_API_KEY
+   }));
+   const normalized=nearbyAddressNormalize;
+   const acceptable=(geo.features||[]).filter(item=>{
+    const v=item.properties||{},coords=item.geometry?.coordinates||[];
+    // building以外（street, suburb, city等）は位置精度が不十分。
+    if(v.result_type!=='building'||!v.housenumber)return false;
+    if(!Number.isFinite(Number(coords[0]))||!Number.isFinite(Number(coords[1])))return false;
+    if(normalized(v.state)!==expectedPref)return false;
+    if(normalized(v.city||v.county)!==expectedCity)return false;
+    const actual=[v.state,v.city||v.county,v.street,v.housenumber].filter(Boolean).join('');
+    // formatted/address_line_1の揺れにも対応するが、番地を含む全文一致は必須。
+    const options=[actual,v.formatted,v.address_line1,v.address_line2?String(v.address_line1||'')+String(v.address_line2||''):''];
+    return options.some(x=>normalized(x)===expected);
+   });
+   console.info('[GEOAPIFY_DIAG]',JSON.stringify({event:'geocode_fallback',candidateCount:(geo.features||[]).length,exactBuildingMatches:acceptable.length,resultTypes:(geo.features||[]).slice(0,5).map(x=>x.properties?.result_type||null)}));
+   if(acceptable.length!==1)return res.status(422).json({error:'全国Q地図・Geoapifyの両方で、番地単位の位置を一意に確認できませんでした。施設検索は実行していません。'});
+   lon=Number(acceptable[0].geometry.coordinates[0]);lat=Number(acceptable[0].geometry.coordinates[1]);
+   geocodingSource='Geoapify';attribution='Geoapify Geocoding API';
   }
-  console.info('[QCHIZU_DIAG]',JSON.stringify({event:'precise_match',coordinate_level:result.result.coordinate_level}));
-  const lat=Number(result.result.lat),lon=Number(result.result.lon);
-  const mapUrl=String(result.links?.qchizu_map||'');
-  const attribution=String(geocode.attribution||'');
-  if(!attribution||!/^https:\/\/(?:[a-z0-9-]+\.)?qchizu\.jp\//i.test(mapUrl))
-   return res.status(502).json({error:'全国Q地図の出典情報を取得できませんでした。'});
   const places=await nearbyFetch('https://api.geoapify.com/v2/places?'+new URLSearchParams({
    categories:'commercial.supermarket,healthcare.hospital,healthcare.clinic_or_praxis,education.school,leisure.park',
    filter:`circle:${lon},${lat},1000`,bias:`proximity:${lon},${lat}`,limit:'500',apiKey:process.env.GEOAPIFY_API_KEY
@@ -235,7 +250,7 @@ app.post('/admin/nearby-facilities',auth,async(req,res)=>{
    found.push({name:name.replace(/[|\r\n]/g,' '),category,distance:'約'+meters+'m',meters});
   }
   found.sort((a,b)=>a.meters-b.meters||a.name.localeCompare(b.name,'ja'));
-  res.json({facilities:found.map(({meters,...rest})=>rest),qchizuAttribution:attribution,qchizuMapUrl:mapUrl,note:'距離は物件所在地からの直線距離です。学校は通学区域を示しません。'});
+  res.json({facilities:found.map(({meters,...rest})=>rest),qchizuAttribution:attribution,qchizuMapUrl:mapUrl,geocodingSource,note:'距離は物件所在地からの直線距離です。学校は通学区域を示しません。'});
  }catch(e){console.error('Nearby search:',e);res.status(502).json({error:'周辺施設検索に失敗しました。API設定や住所を確認してください。'});}
 });
 // 周辺施設は既存物件へ保存。既存の物件写真・CSV登録情報は変更しない。
@@ -250,7 +265,7 @@ app.post('/admin/properties/:id/facilities',auth,(req,res)=>{
   distance:String(f.distance||'').trim().slice(0,40)
  })).filter(f=>f.name);
  const mapUrl=String(req.body.qchizuMapUrl||'');
- if(!/^https:\/\/(?:[a-z0-9-]+\.)?qchizu\.jp\//i.test(mapUrl))return res.status(400).json({error:'地図出典URLが不正です。'});
+ if(mapUrl && !/^https:\/\/(?:[a-z0-9-]+\.)?qchizu\.jp\//i.test(mapUrl))return res.status(400).json({error:'地図出典URLが不正です。'});
  p.facilities=cleaned;p.qchizuMapUrl=mapUrl;p.qchizuAttribution=String(req.body.qchizuAttribution||'').slice(0,300);
  p.updatedAt=new Date().toISOString();write(PF,all);
  res.json({success:true,count:cleaned.length});
