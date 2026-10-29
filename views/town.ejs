@@ -10,6 +10,23 @@ const listing=Array.isArray(area.properties)?area.properties:[];
 const count=listing.length;
 const residential=listing.filter(p=>p.category==='居住用').length;
 const commercial=listing.filter(p=>p.category==='事業用').length;
+// 登録済みの駅名を優先し、交通欄がある場合のみ駅名を抽出する。
+function stationName(p){
+  const direct=String(p.station||'').trim();
+  if(direct)return direct;
+  const traffic=String(p.traffic||p.transportation||p.access||p.交通||'').trim();
+  if(!traffic)return '';
+  const match=traffic.match(/([^\s、,／/「」()（）]{1,35}駅)/);
+  return match ? match[1] : '';
+}
+function stationWalk(p){
+  const raw=p.walkMinutes;
+  if(raw!==''&&raw!=null&&Number.isFinite(Number(raw))&&Number(raw)>0)return Number(raw);
+  const traffic=String(p.traffic||p.transportation||p.access||p.交通||'');
+  const match=traffic.match(/徒歩\s*(\d+)\s*分/);
+  return match ? Number(match[1]) : null;
+}
+
 const canonicalUrl=origin()+url(city,town);
 const pageTitle=city+town+'の賃貸物件・貸店舗・貸事務所｜JBP RENTAL';
 const pageDescription=city+town+'の賃貸物件を探すならJBP RENTAL。公開中の物件'+count+'件を掲載。マンション・アパート・戸建・店舗・事務所などを確認できます。';
@@ -29,6 +46,7 @@ const pageDescription=city+town+'の賃貸物件を探すならJBP RENTAL。公�
 .town-property-grid .card{min-width:0;overflow:hidden}
 .town-property-grid .card img{width:100%;aspect-ratio:4/3;object-fit:cover}
 .town-property-grid .card h3{overflow-wrap:anywhere}
+.town-station{font-weight:600;color:#14513c}
 @media(max-width:650px){
 .town-property-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
 .town-property-grid .card{padding:6px;border-radius:9px}
@@ -57,6 +75,7 @@ const pageDescription=city+town+'の賃貸物件を探すならJBP RENTAL。公�
 <div class="price"><%= money(p.price) %>円/月</div>
 <p><%= p.layout||'' %> <%= p.area ? p.area+'㎡' : '' %></p>
 <p><%= p.city %><%= p.address %></p>
+<p class="town-station"><% if(stationName(p)){ %>🚉 <%= stationName(p) %><% if(stationWalk(p)!=null){ %> 徒歩<%= stationWalk(p) %>分<% } %><% }else{ %>最寄り駅：未登録<% } %></p>
 </a>
 </article>
 <% }) %>
@@ -65,7 +84,7 @@ const pageDescription=city+town+'の賃貸物件を探すならJBP RENTAL。公�
 // 公開物件の登録データのみを使い、地域情報を捏造しない
 const stationMap=new Map();
 for(const property of listing){
- const name=String(property.station||'').trim();
+ const name=stationName(property);
  if(!name)continue;
  const item=stationMap.get(name)||{name,count:0,walks:[]};
  item.count++;
