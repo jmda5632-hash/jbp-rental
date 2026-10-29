@@ -1,1 +1,72 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title><%= area.city %><%= area.town %>の賃貸物件｜JBP RENTAL</title><meta name="description" content="<%= area.city %><%= area.town %>の居住用・事業用賃貸物件一覧。家賃・間取り・所在地から賃貸物件を探せます。"><link rel="canonical" href="https://jbp-rental.onrender.com<%= url(area.city,area.town) %>"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/jbp-redesign.css"><link rel="stylesheet" href="/jbp-detail-town.css"></head><body><header class="jbp-header"><div class="jbp-wrap jbp-head"><a class="jbp-logo" href="/">⌂ JBP RENTAL<small>ジャパンベストパートナーズ株式会社</small></a><nav class="jbp-nav"><a href="/">ホーム</a><a href="/properties">賃貸物件検索</a><a href="/areas">町名から探す</a><a href="/owners">オーナー様へ</a></nav></div></header><main class="jbp-wrap jbp-town"><div class="jbp-crumb"><a href="/">ホーム</a> › <a href="/areas">町名から探す</a> › <%= area.city %><%= area.town %></div><div class="jbp-town-banner"><span>AREA SEARCH</span><h1><%= area.city %><%= area.town %>の賃貸物件</h1><p>この町名の公開中の賃貸物件をご紹介します。</p></div><section class="jbp-section"><div class="jbp-section-title"><h2>掲載物件 <%= area.properties.length %>件</h2><a href="/areas">町名一覧に戻る →</a></div><div class="jbp-grid"><% area.properties.forEach(p=>{ %><a class="jbp-card" href="/property/<%= p.id %>"><div class="jbp-card-photo"><% if(p.photos && p.photos[0]){ %><img loading="lazy" src="/uploads/<%= encodeURIComponent(p.photos[0]) %>" alt="<%= p.title %>の物件写真"><% } else { %><span>NO IMAGE</span><% } %></div><div class="jbp-card-body"><span class="jbp-tag"><%= p.type || '賃貸物件' %></span><h3><%= p.title %></h3><div class="jbp-price"><%= money(p.price) %>円<small>/月</small></div><p><%= p.layout || '間取り未登録' %><% if(p.area !== undefined && p.area !== null && p.area !== ''){ %>・<%= p.area %>㎡<% } %></p><p><%= p.city %><%= p.address %></p></div></a><% }) %></div></section><section class="jbp-info-panel"><h2><%= area.city %><%= area.town %>で賃貸物件を探す</h2><p>居住用マンション・アパート・戸建や、店舗・事務所などの募集情報を掲載しています。募集条件や空室状況は変更される場合がありますので、各物件の詳細ページからお問い合わせください。</p><p><a class="jbp-plain-link" href="/properties">すべての賃貸物件を見る →</a></p></section></main><footer class="jbp-footer"><div class="jbp-wrap">ジャパンベストパートナーズ株式会社｜JBP RENTAL</div></footer><nav class="jbp-bottom" aria-label="スマホメニュー"><a href="/">ホーム</a><a href="/properties">物件検索</a><a href="/areas">町名検索</a><a href="/owners">オーナー様</a></nav></body></html>
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<%
+const city=String(area.city||'');
+const town=String(area.town||'');
+const listing=Array.isArray(area.properties)?area.properties:[];
+const count=listing.length;
+const residential=listing.filter(p=>p.category==='居住用').length;
+const commercial=listing.filter(p=>p.category==='事業用').length;
+const canonicalUrl=origin()+url(city,town);
+const pageTitle=city+town+'の賃貸物件・貸店舗・貸事務所｜JBP RENTAL';
+const pageDescription=city+town+'の賃貸物件を探すならJBP RENTAL。公開中の物件'+count+'件を掲載。マンション・アパート・戸建・店舗・事務所などを確認できます。';
+%>
+<title><%= pageTitle %></title>
+<meta name="description" content="<%= pageDescription %>">
+<meta name="robots" content="index,follow">
+<link rel="canonical" href="<%= canonicalUrl %>">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/jbp-redesign.css">
+<style>
+.town-seo{margin:28px 0;padding:24px;background:#fff;border:1px solid #dce9e2;border-radius:16px;line-height:1.9}
+.town-seo h2{margin-top:0;color:#104b38}
+.town-stats{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0}
+.town-stats span{background:#edf6f1;border-radius:30px;padding:7px 14px;font-weight:600}
+.town-property-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.town-property-grid .card{min-width:0;overflow:hidden}
+.town-property-grid .card img{width:100%;aspect-ratio:4/3;object-fit:cover}
+.town-property-grid .card h3{overflow-wrap:anywhere}
+@media(max-width:650px){
+.town-property-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.town-property-grid .card{padding:6px;border-radius:9px}
+.town-property-grid .card h3{font-size:11px;line-height:1.4}
+.town-property-grid .card .price{font-size:13px}
+.town-property-grid .card p,.town-property-grid .card .muted{font-size:10px;line-height:1.4}
+.town-seo{padding:16px}
+}
+</style>
+</head>
+<body>
+<header><div class="wrap"><strong>JBP RENTAL｜ジャパンベストパートナーズ株式会社</strong>
+<nav><a href="/">ホーム</a><a href="/properties">賃貸物件検索</a><a href="/areas">町名から探す</a><a href="/owners">オーナー様へ</a></nav></div></header>
+<main class="wrap">
+<nav aria-label="パンくずリスト"><a href="/">ホーム</a> ＞ <a href="/areas">町名から探す</a> ＞ <span><%= city %><%= town %></span></nav>
+<h1><%= city %><%= town %>の賃貸物件</h1>
+<p><%= city %><%= town %>で公開中の賃貸物件を掲載しています。</p>
+<div class="town-stats"><span>掲載 <%= count %>件</span><span>居住用 <%= residential %>件</span><span>事業用 <%= commercial %>件</span></div>
+<section class="town-property-grid" aria-label="掲載物件">
+<% listing.forEach(p=>{ %>
+<article class="card">
+<a href="/property/<%= encodeURIComponent(p.id) %>">
+<% if(p.photos && p.photos[0]){ %><img loading="lazy" src="/uploads/<%= p.photos[0] %>" alt="<%= p.title %>の物件写真"><% } else { %><div style="aspect-ratio:4/3;background:#e9f0ec;display:grid;place-items:center">写真準備中</div><% } %>
+<span class="muted"><%= p.category||'' %>・<%= p.type||'' %></span>
+<h3><%= p.title %></h3>
+<div class="price"><%= money(p.price) %>円/月</div>
+<p><%= p.layout||'' %> <%= p.area ? p.area+'㎡' : '' %></p>
+<p><%= p.city %><%= p.address %></p>
+</a>
+</article>
+<% }) %>
+</section>
+<section class="town-seo" aria-labelledby="town-guide">
+<h2 id="town-guide"><%= city %><%= town %>で賃貸物件を探す方へ</h2>
+<p>JBP RENTALでは、<%= city %><%= town %>の賃貸マンション・アパート・一戸建てなどの居住用物件に加え、貸店舗・貸事務所などの事業用物件もご紹介しています。掲載情報は募集状況に応じて更新されます。</p>
+<p>現在このページに掲載されている物件は<%= count %>件です。家賃、間取り、面積、最寄り駅などを比較し、気になる物件の詳細をご確認ください。条件に合う物件がない場合は、他の町名や市区町村もご覧いただけます。</p>
+<p><a href="/properties">賃貸物件を条件から探す</a> ／ <a href="/areas">ほかの町名から探す</a></p>
+</section>
+</main>
+<footer><div class="wrap">ジャパンベストパートナーズ株式会社｜JBP RENTAL</div></footer>
+</body></html>
