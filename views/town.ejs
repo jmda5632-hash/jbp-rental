@@ -12,19 +12,15 @@ const residential=listing.filter(p=>p.category==='居住用').length;
 const commercial=listing.filter(p=>p.category==='事業用').length;
 // 登録済みの駅名を優先し、交通欄がある場合のみ駅名を抽出する。
 function stationName(p){
-  const direct=String(p.station||'').trim();
-  if(direct)return direct;
-  const traffic=String(p.traffic||p.transportation||p.access||p.交通||'').trim();
-  if(!traffic)return '';
-  const match=traffic.match(/([^\s、,／/「」()（）]{1,35}駅)/);
-  return match ? match[1] : '';
-}
-function stationWalk(p){
-  const raw=p.walkMinutes;
-  if(raw!==''&&raw!=null&&Number.isFinite(Number(raw))&&Number(raw)>0)return Number(raw);
-  const traffic=String(p.traffic||p.transportation||p.access||p.交通||'');
-  const match=traffic.match(/徒歩\s*(\d+)\s*分/);
-  return match ? Number(match[1]) : null;
+  const candidates=[p.station,p.traffic,p.transportation,p.access,p['交通']];
+  for(const value of candidates){
+    const text=String(value||'').normalize('NFKC').trim();
+    if(!text)continue;
+    const match=text.match(/([^\s、,／/「」()（）:：]{1,35}駅)/);
+    if(match)return match[1];
+    // 「徒歩17分」など、駅名でない交通情報は表示しない。
+  }
+  return '';
 }
 
 const canonicalUrl=origin()+url(city,town);
@@ -75,7 +71,7 @@ const pageDescription=city+town+'の賃貸物件を探すならJBP RENTAL。公�
 <div class="price"><%= money(p.price) %>円/月</div>
 <p><%= p.layout||'' %> <%= p.area ? p.area+'㎡' : '' %></p>
 <p><%= p.city %><%= p.address %></p>
-<p class="town-station"><% if(stationName(p)){ %>🚉 <%= stationName(p) %><% if(stationWalk(p)!=null){ %> 徒歩<%= stationWalk(p) %>分<% } %><% }else{ %>最寄り駅：未登録<% } %></p>
+<p class="town-station"><% if(stationName(p)){ %>🚉 <%= stationName(p) %><% }else{ %>最寄り駅：未登録<% } %></p>
 </a>
 </article>
 <% }) %>
@@ -86,7 +82,7 @@ const stationMap=new Map();
 for(const property of listing){
  const name=stationName(property);
  if(!name)continue;
- const item=stationMap.get(name)||{name,count:0,walks:[]};
+ const item=stationMap.get(name)||{name,count:0};
  item.count++;
  const walk=Number(property.walkMinutes);
  if(property.walkMinutes!=='' && property.walkMinutes!=null && Number.isFinite(walk) && walk>0)item.walks.push(walk);
@@ -112,9 +108,9 @@ const locationQuery=encodeURIComponent(city+town);
 <section class="town-seo" aria-labelledby="access-guide">
 <h2 id="access-guide"><%= city %><%= town %>の交通アクセス</h2>
 <% if(stations.length){ %>
-<p>掲載中の物件に登録されている最寄り駅情報です。駅からの距離や所要時間は各物件の詳細ページでご確認ください。</p>
+<p>掲載中の物件に登録されている最寄り駅情報です。駅名は登録された情報に基づいて表示しています。</p>
 <ul>
-<% stations.forEach(s=>{ %><li><strong><%= s.name %></strong>：掲載物件 <%= s.count %>件<% if(s.walks.length){ %>（登録された徒歩分数 <%= Math.min(...s.walks) %>〜<%= Math.max(...s.walks) %>分）<% } %></li><% }) %>
+<% stations.forEach(s=>{ %><li><strong><%= s.name %></strong>：掲載物件 <%= s.count %>件</li><% }) %>
 </ul>
 <% } else { %><p>現在、公開物件に最寄り駅の登録情報がありません。交通アクセスは各物件の詳細情報をご確認ください。</p><% } %>
 </section>
@@ -134,7 +130,7 @@ const locationQuery=encodeURIComponent(city+town);
 <section class="town-seo" aria-labelledby="town-guide">
 <h2 id="town-guide"><%= city %><%= town %>で賃貸物件を探す方へ</h2>
 <p>JBP RENTALでは、<%= city %><%= town %>の賃貸マンション・アパート・一戸建てなどの居住用物件に加え、貸店舗・貸事務所などの事業用物件もご紹介しています。掲載情報は募集状況に応じて更新されます。</p>
-<p>現在このページに掲載されている物件は<%= count %>件です。家賃、間取り、面積、最寄り駅などを比較し、気になる物件の詳細をご確認ください。条件に合う物件がない場合は、他の町名や市区町村もご覧いただけます。</p>
+<p>現在このページに掲載されている物件は<%= count %>件です。家賃、間取り、面積、最寄り駅名などを比較し、気になる物件の詳細をご確認ください。条件に合う物件がない場合は、他の町名や市区町村もご覧いただけます。</p>
 <p><a href="/properties">賃貸物件を条件から探す</a> ／ <a href="/areas">ほかの町名から探す</a></p>
 </section>
 </main>
