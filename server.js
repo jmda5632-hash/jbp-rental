@@ -10,6 +10,8 @@ const town=a=>String(a||'').normalize('NFKC').trim().replace(/(?:[0-9]+|[一二�
 const url=(c,t)=>'/areas/'+encodeURIComponent(c)+'/'+encodeURIComponent(t);
 const areas=()=>{const m=new Map();for(const p of read(PF)){if(p.status!=='公開'||!p.city)continue;const t=town(p.address);if(!t)continue;const k=JSON.stringify([p.city,t]);if(!m.has(k))m.set(k,{city:p.city,town:t,properties:[]});m.get(k).properties.push(p)}return [...m.values()]};
 app.set('view engine','ejs');app.use(express.urlencoded({extended:true}));app.use(express.json());app.use(express.static(path.join(ROOT,'public')));app.use('/uploads',express.static(UPLOAD));
+app.set('trust proxy', 1);
+app.use(session({
 app.use(session({secret:process.env.SESSION_SECRET||crypto.randomBytes(32).toString('hex'),resave:false,saveUninitialized:false,cookie:{httpOnly:true,sameSite:'lax',secure:process.env.NODE_ENV==='production'}}));
 app.locals.money=money;app.locals.types=types;app.locals.statuses=statuses;app.locals.url=url;app.locals.origin=origin;
 const auth=(req,res,next)=>req.session.admin?next():res.redirect('/admin/login');
