@@ -1,0 +1,1 @@
+<link rel="stylesheet" href="/style.css"><main class="wrap"><h1>お問い合わせ一覧</h1><a href="/admin">管理画面へ</a><div class="scroll"><table><tr><th>日時</th><th>お名前</th><th>電話</th><th>メール</th><th>内容</th></tr><% inquiries.forEach(i=>{ %><tr><td><%= i.createdAt %></td><td><%= i.name %></td><td><%= i.phone %></td><td><%= i.email %></td><td><%= i.message %></td></tr><% }) %></table></div></main>
