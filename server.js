@@ -79,8 +79,13 @@ function reinsRentalRow(row){
  const key=crypto.createHash('sha256').update(JSON.stringify([raw,t,String(row['建物面積']||''),String(row['間取']||''),String(row['築年月']||''),String(row['商号']||'')])).digest('hex').slice(0,20);
  const slash=v=>String(v||'').split(/[／/]/).map(x=>x.trim());
  const deposit=slash(row['敷金／保証金']),keymoney=slash(row['礼金／権利金']);
+  // REINSの交通欄は徒歩分数だけの場合があるため、駅名と混同しない
+  const traffic=String(row['交通']||'').normalize('NFKC').trim();
+  const walkMatch=traffic.match(/徒歩\s*(\d+)\s*分/);
+  const stationCandidate=traffic.replace(/徒歩\s*\d+\s*分/g,'').replace(/^(?:JR|私鉄)?[^\s]*?線[\s　]*/,'').replace(/^[\s　・、,:：／/()（）-]+|[\s　・、,:：／/()（）-]+$/g,'').trim();
+  const stationName=stationCandidate && /[一-龥ぁ-んァ-ヶA-Za-z]/.test(stationCandidate) && !/^(?:バス|車|徒歩|約\d+)$/.test(stationCandidate) ? stationCandidate : '';
  const category=/貸店舗|貸事務所|貸倉庫|貸地/.test(type)?'事業用':'居住用';
- return {propertyNo:'REINS-'+key,title:m[2]+m[3]+' '+t,category,type,price:String(price),managementFee:String(fee),prefecture:m[1],city:m[2],address:m[3],layout:String(row['間取']||'').normalize('NFKC'),area:size?size[0]:'',built:String(row['築年月']||''),floor:String(row['所在階']||''),station:String(row['交通']||''),transaction:String(row['取引態様']||''),deposit:deposit[0]||'',guarantee:deposit[1]||'',keyMoney:keymoney[0]||'',listingSource:'REINS / '+String(row['商号']||''),description:'REINS取込物件。募集条件・広告掲載許可・物件情報は公開前に確認してください。',adPermission:'0'};
+ return {propertyNo:'REINS-'+key,title:m[2]+m[3]+' '+t,category,type,price:String(price),managementFee:String(fee),prefecture:m[1],city:m[2],address:m[3],layout:String(row['間取']||'').normalize('NFKC'),area:size?size[0]:'',built:String(row['築年月']||''),floor:String(row['所在階']||''),station:stationName,walkMinutes:walkMatch?walkMatch[1]:'',transaction:String(row['取引態様']||''),deposit:deposit[0]||'',guarantee:deposit[1]||'',keyMoney:keymoney[0]||'',listingSource:'REINS / '+String(row['商号']||''),description:'REINS取込物件。募集条件・広告掲載許可・物件情報は公開前に確認してください。',adPermission:'0'};
 }
 const rentalCsvColumns=[['propertyNo','物件番号'],['title','物件名'],['category','用途'],['type','物件種別'],['price','家賃'],['managementFee','管理費'],['deposit','敷金'],['keyMoney','礼金'],['guarantee','保証金'],['renewalFee','更新料'],['contractTerm','契約期間'],['availableDate','入居可能日'],['listingSource','募集区分'],['prefecture','都道府県'],['city','市区町村'],['address','町名番地'],['station','最寄駅'],['walkMinutes','徒歩分数'],['layout','間取り'],['area','面積'],['built','築年月'],['structure','構造'],['floor','所在階'],['parking','駐車場'],['transaction','取引態様'],['description','物件説明'],['highlights','おすすめポイント'],['pets','ペット可'],['garden','庭付き'],['featured','おすすめ'],['adPermission','広告掲載許諾確認済み']];
 const csvBoolean=v=>['1','true','yes','はい','有','あり','○','〇'].includes(String(v||'').trim().toLowerCase());
@@ -109,6 +114,14 @@ app.post('/admin/import-csv',auth,(req,res,next)=>rentalCsvUpload.array('csv',50
     if(b.adPermission!==undefined&&b.adPermission&&!csvBoolean(b.adPermission))b.adPermission='';
     const idx=all.findIndex(p=>String(p.propertyNo||'')===id);
     const old=idx>=0?all[idx]:{};
+     // 駅名がCSVにない場合、手入力済みの駅名は保持し、誤って駅名扱いした徒歩分数は除外
+     if(isReinsRentalRow(row)){
+       if(!b.station){
+         const previous=String(old.station||'').trim();
+         b.station=previous && !/^(?:徒歩\s*)?\d+\s*分$/.test(previous) ? previous : '';
+       }
+       if(!b.walkMinutes && old.walkMinutes!=null)b.walkMinutes=old.walkMinutes;
+     }
     const merged={...old,...b,propertyNo:id,status:idx>=0?old.status:'非公開'};
     for(const k of ['pets','garden','featured','adPermission'])merged[k]=b[k]!==undefined?csvBoolean(b[k]):!!old[k];
     const p=normalize(merged,old);p.status=idx>=0?old.status:'非公開';p.id=old.id||crypto.randomUUID();p.createdAt=old.createdAt||new Date().toISOString();
