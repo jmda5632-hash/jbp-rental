@@ -35,7 +35,7 @@ app.get('/admin',auth,(q,s)=>{const all=read(PF);let ps=[...all];for(const k of 
 app.get('/admin/properties/new',auth,(q,s)=>s.render('admin-form',{p:null,action:'/admin/properties'}));
 app.get('/admin/properties/:id/edit',auth,(q,s)=>{const p=read(PF).find(p=>p.id===q.params.id);return p?s.render('admin-form',{p,action:'/admin/properties/'+p.id}):s.sendStatus(404)});
 const imageFields=upload.fields([{name:'photos',maxCount:30},{name:'floorplans',maxCount:10},{name:'panoramas',maxCount:10}]);
-function save(q,s){const all=read(PF),idx=all.findIndex(p=>p.id===q.params.id),old=idx<0?{}:all[idx],p=normalize(q.body,old);if(!valid(p)){Object.values(q.files||{}).flat().forEach(f=>remove(f.filename));return s.status(400).send('物件名・種別・市区町村・町名番地・家賃を確認してください')}if(idx<0){p.id=crypto.randomUUID();p.createdAt=new Date().toISOString()}for(const k of ['photos','floorplans','panoramas'])p[k]=[...(old[k]||[]),...(q.files?.[k]||[]).map(f=>f.filename)];if(idx<0)all.unshift(p);else all[idx]=p;write(PF,all);s.redirect('/admin')}
+function save(q,s){const all=read(PF),idx=all.findIndex(p=>p.id===q.params.id),old=idx<0?{}:all[idx],p=normalize(q.body,old);if(idx>=0 && nearbyAddressNormalize([old.prefecture,old.city,old.address].join(''))!==nearbyAddressNormalize([p.prefecture,p.city,p.address].join(''))){delete p.manualLocation;p.facilities=[];delete p.qchizuMapUrl;delete p.qchizuAttribution;}if(!valid(p)){Object.values(q.files||{}).flat().forEach(f=>remove(f.filename));return s.status(400).send('物件名・種別・市区町村・町名番地・家賃を確認してください')}if(idx<0){p.id=crypto.randomUUID();p.createdAt=new Date().toISOString()}for(const k of ['photos','floorplans','panoramas'])p[k]=[...(old[k]||[]),...(q.files?.[k]||[]).map(f=>f.filename)];if(idx<0)all.unshift(p);else all[idx]=p;write(PF,all);s.redirect('/admin')}
 app.post('/admin/properties',auth,imageFields,save);app.post('/admin/properties/:id',auth,imageFields,save);
 app.post('/admin/properties/:id/status',auth,(q,s)=>{const a=read(PF),p=a.find(p=>p.id===q.params.id);if(p&&statuses.includes(q.body.status)){p.status=q.body.status;write(PF,a)}s.redirect('/admin')});
 app.post('/admin/properties/:id/delete',auth,(q,s)=>{const a=read(PF),p=a.find(p=>p.id===q.params.id);if(p)for(const k of ['photos','floorplans','panoramas'])(p[k]||[]).forEach(remove);write(PF,a.filter(p=>p.id!==q.params.id));s.redirect('/admin')});
@@ -124,7 +124,7 @@ app.post('/admin/import-csv',auth,(req,res,next)=>rentalCsvUpload.array('csv',50
      }
     const merged={...old,...b,propertyNo:id,status:idx>=0?old.status:'非公開'};
     for(const k of ['pets','garden','featured','adPermission'])merged[k]=b[k]!==undefined?csvBoolean(b[k]):!!old[k];
-    const p=normalize(merged,old);p.status=idx>=0?old.status:'非公開';p.id=old.id||crypto.randomUUID();p.createdAt=old.createdAt||new Date().toISOString();
+    const p=normalize(merged,old);if(idx>=0 && nearbyAddressNormalize([old.prefecture,old.city,old.address].join(''))!==nearbyAddressNormalize([p.prefecture,p.city,p.address].join(''))){delete p.manualLocation;p.facilities=[];delete p.qchizuMapUrl;delete p.qchizuAttribution;}p.status=idx>=0?old.status:'非公開';p.id=old.id||crypto.randomUUID();p.createdAt=old.createdAt||new Date().toISOString();
     for(const k of ['photos','floorplans','panoramas'])p[k]=old[k]||[];
     if(!valid(p)){errors.push(`${file.originalname} ${n+2}行目: 物件情報が不正です`);failed++;continue}
     if(idx>=0){all[idx]=p;updated++}else{all.unshift(p);created++}changed=true;
@@ -165,12 +165,36 @@ async function nearbyFetch(url){
  if(!response.ok)throw Error('外部API応答エラー: '+response.status);
  return response.json();
 }
+// 地図上で管理者が確認した位置を保存する。住所変更時は無効化。
+app.post('/admin/properties/:id/manual-location',auth,(req,res)=>{
+ const all=read(PF),p=all.find(x=>x.id===req.params.id);
+ if(!p)return res.status(404).json({error:'物件が見つかりません'});
+ const lat=Number(req.body.lat),lon=Number(req.body.lon);
+ const current=nearbyAddressNormalize([p.prefecture,p.city,p.address].join(''));
+ const supplied=nearbyAddressNormalize([req.body.prefecture,req.body.city,req.body.address].join(''));
+ if(!current||current!==supplied)return res.status(409).json({error:'住所が保存済み物件と異なります。先に物件情報を保存してください。'});
+ if(typeof req.body.lat!=='number'||typeof req.body.lon!=='number'||!Number.isFinite(lat)||!Number.isFinite(lon)||lat<20||lat>46||lon<122||lon>154)
+  return res.status(400).json({error:'日本国内の有効な位置を指定してください。'});
+ if(req.body.confirmed!==true)return res.status(400).json({error:'地図上の位置を確認してください。'});
+ p.manualLocation={lat,lon,addressKey:current,confirmedAt:new Date().toISOString()};
+ p.facilities=[];p.qchizuMapUrl='';p.qchizuAttribution='';p.updatedAt=new Date().toISOString();write(PF,all);
+ res.json({success:true,lat,lon});
+});
 app.post('/admin/nearby-facilities',auth,async(req,res)=>{
  const pref=String(req.body.prefecture||'').trim(),city=String(req.body.city||'').trim(),addr=String(req.body.address||'').trim();
  if(!pref||!city||!addr||[pref,city,addr].join('').length>250)return res.status(400).json({error:'都道府県・市区町村・町名番地を入力してください。'});
- if(!process.env.GEOAPIFY_API_KEY)return res.status(503).json({error:'RenderのEnvironmentにGEOAPIFY_API_KEYを設定してください。'});
+  if(!process.env.GEOAPIFY_API_KEY)return res.status(503).json({error:'RenderのEnvironmentにGEOAPIFY_API_KEYを設定してください。'});
  try{
   const full=pref+city+addr;
+   const manualProperty=req.body.useManualLocation===true ? read(PF).find(p=>p.id===req.body.propertyId) : null;
+   if(req.body.useManualLocation===true && (!manualProperty||!manualProperty.manualLocation))return res.status(422).json({error:'地図で確定した物件位置がありません。'});
+   const manual=manualProperty?.manualLocation;
+   if(manual && (manual.addressKey!==nearbyAddressNormalize(full)||manual.addressKey!==nearbyAddressNormalize([manualProperty.prefecture,manualProperty.city,manualProperty.address].join(''))))
+    return res.status(409).json({error:'保存済みの位置と現在の住所が一致しません。地図で位置を指定し直してください。'});
+   let lat,lon,mapUrl='',attribution='',geocodingSource='全国Q地図';
+   if(manual){lat=Number(manual.lat);lon=Number(manual.lon);geocodingSource='管理者が地図上で確認した位置';}
+   else{
+
   const geocode=await nearbyFetch('https://api.qchizu.jp/geocode.php?'+new URLSearchParams({address:full}));
   const norm=nearbyAddressNormalize;
   const expected=norm(full),expectedCity=norm(city),expectedPref=norm(pref);
@@ -223,9 +247,10 @@ app.post('/admin/nearby-facilities',auth,async(req,res)=>{
    console.info('[GEOAPIFY_DIAG]',JSON.stringify({event:'geocode_fallback',candidateCount:(geo.features||[]).length,exactBuildingMatches:acceptable.length,resultTypes:(geo.features||[]).slice(0,5).map(x=>x.properties?.result_type||null)}));
    if(acceptable.length!==1)return res.status(422).json({error:'全国Q地図・Geoapifyの両方で、番地単位の位置を一意に確認できませんでした。施設検索は実行していません。'});
    lon=Number(acceptable[0].geometry.coordinates[0]);lat=Number(acceptable[0].geometry.coordinates[1]);
-   geocodingSource='Geoapify';attribution='Geoapify Geocoding API';
+    geocodingSource='Geoapify';attribution='Geoapify Geocoding API';
   }
-  const places=await nearbyFetch('https://api.geoapify.com/v2/places?'+new URLSearchParams({
+  } // 地図手動指定でない場合の住所検索はここまで
+   const places=await nearbyFetch('https://api.geoapify.com/v2/places?'+new URLSearchParams({
    categories:'commercial.supermarket,healthcare.hospital,healthcare.clinic_or_praxis,education.school,leisure.park',
    filter:`circle:${lon},${lat},1000`,bias:`proximity:${lon},${lat}`,limit:'500',apiKey:process.env.GEOAPIFY_API_KEY
   }));
